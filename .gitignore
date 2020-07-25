@@ -1,0 +1,5 @@
+*.swp
+*~
+/gcp-cred.json
+/host_vars/localhost*
+~*

@@ -1,0 +1,50 @@
+<!doctype html>
+<html>
+<head>
+  <title>Stream</title>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+    }
+
+    body {
+      background-color: #000;
+    }
+
+    #player {
+      width: 100%;
+      height: 100%;
+    }
+  </style>
+</head>
+<body>
+  <video id="player" controls></video>
+  <script src="https://cdn.dashjs.org/v3.1.1/dash.all.min.js"></script>
+  <script>
+    (function() {
+      const [,key] = /^(?:\?([a-zA-Z0-9_\-]+))?$/.exec(window.location.search)
+      if (!key) {
+        return
+      }
+
+      const player = dashjs.MediaPlayer().create()
+      player.initialize(document.getElementById('player'), `/dash/${key}/index.mpd`, false)
+      player.updateSettings({
+        streaming: {
+          liveDelay: 8,
+          lowLatencyEnabled: true
+        }
+      })
+
+      setInterval(function () {
+        var dashMetrics = player.getDashMetrics()
+        var currentBuffer = dashMetrics.getCurrentBufferLevel('video')
+        console.log('Buffer: ', currentBuffer, 'secs')
+      }, 200)
+    })()
+  </script>
+</body>
+</html>
