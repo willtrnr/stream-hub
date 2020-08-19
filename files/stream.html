@@ -31,10 +31,10 @@
       }
 
       const player = dashjs.MediaPlayer().create()
-      player.initialize(document.getElementById('player'), `/dash/${key}/index.mpd`, false)
+      player.initialize(document.getElementById('player'), '/dash/' + key + '/index.mpd', false)
       player.updateSettings({
         streaming: {
-          liveDelay: 8,
+          liveDelay: 3,
           lowLatencyEnabled: true
         }
       })
@@ -43,7 +43,7 @@
         var dashMetrics = player.getDashMetrics()
         var currentBuffer = dashMetrics.getCurrentBufferLevel('video')
         console.log('Buffer: ', currentBuffer, 'secs')
-      }, 200)
+      }, 250)
     })()
   </script>
 </body>
