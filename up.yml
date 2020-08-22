@@ -28,7 +28,7 @@
         project: "{{ gcp_project }}"
         zone: "{{ gcp_zone }}"
         name: stream-node
-        machine_type: e2-highcpu-4
+        machine_type: e2-highcpu-8
         disks:
           - auto_delete: yes
             boot: yes
