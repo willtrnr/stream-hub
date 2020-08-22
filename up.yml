@@ -2,7 +2,8 @@
 - hosts: localhost
   gather_facts: no
   tasks:
-    - gcp_compute_firewall:
+    - name: create the firewall rules
+      gcp_compute_firewall:
         project: "{{ gcp_project }}"
         name: "allow-{{ item.name }}"
         allowed:
@@ -22,7 +23,8 @@
         - name: rtmp
           port: '1935'
 
-    - gcp_compute_instance:
+    - name: create the instance
+      gcp_compute_instance:
         project: "{{ gcp_project }}"
         zone: "{{ gcp_zone }}"
         name: stream-node
@@ -47,13 +49,15 @@
         service_account_file: "{{ gcp_cred_file }}"
       register: instance
 
-    - wait_for:
+    - name: wait for the instance to come online
+      wait_for:
         host: "{{ instance.networkInterfaces[0].accessConfigs[0].natIP }}"
         port: 22
         delay: 5
         timeout: 60
 
-    - cloudflare_dns:
+    - name: update the dns record on cloudflare
+      cloudflare_dns:
         zone: archwill.net
         record: stream-hub
         type: A
@@ -63,9 +67,16 @@
         account_email: "{{ cf_email }}"
         account_api_token: "{{ cf_token }}"
 
-    - add_host:
+    - name: add to the play
+      add_host:
         hostname: "{{ instance.networkInterfaces[0].accessConfigs[0].natIP }}"
         groupname: stream_nodes
+
+    - name: ensure we do not have a conflicting host key locally
+      lineinfile:
+        path: "{{ lookup('env', 'HOME') }}/.ssh/known_hosts"
+        regexp: "{{ instance.networkInterfaces[0].accessConfigs[0].natIP | regex_escape() }}"
+        state: absent
 
 - hosts: stream_nodes
   connection: ssh
@@ -75,32 +86,37 @@
         name: nginx
         state: restarted
   tasks:
-    - yum:
+    - name: add the epel and rpmfusion repos
+      yum:
         name:
           - 'https://dl.fedoraproject.org/pub/epel/epel-release-latest-8.noarch.rpm'
           - 'https://download1.rpmfusion.org/free/el/rpmfusion-free-release-8.noarch.rpm'
         state: present
       become: yes
 
-    - yum:
+    - name: full system update
+      yum:
         name: '*'
         state: latest
         update_cache: yes
       become: yes
       register: update
 
-    - lineinfile:
+    - name: disable selinux
+      lineinfile:
         path: /etc/selinux/config
         regexp: '^SELINUX='
         line: SELINUX=disabled
       become: yes
       register: selinux
 
-    - reboot:
+    - name: reboot for selinux or kernel update
+      reboot:
       become: yes
       when: update.changed or selinux.changed
 
-    - yum:
+    - name: install nginx, necessary tools and libs
+      yum:
         name:
           - nginx
           - ffmpeg
@@ -113,24 +129,28 @@
         state: present
       become: yes
 
-    - shell:
+    - name: get the nginx version
+      shell:
         cmd: "nginx -v 2>&1 | cut -d/ -f2"
       register: nginx_version
       changed_when: False
 
-    - unarchive:
+    - name: download the nginx sources
+      unarchive:
         src: "https://nginx.org/download/nginx-{{ nginx_version.stdout }}.tar.gz"
         dest: /tmp
         creates: "/tmp/nginx-{{ nginx_version.stdout }}"
         remote_src: yes
 
-    - unarchive:
+    - name: download the nginx rtmp sources
+      unarchive:
         src: "https://github.com/arut/nginx-rtmp-module/archive/v{{ nginx_rtmp_version }}.tar.gz"
         dest: /tmp
         creates: "/tmp/nginx-rtmp-module-{{ nginx_rtmp_version }}"
         remote_src: yes
 
-    - shell:
+    - name: get the nginx build arguments
+      shell:
         cmd: >-
           nginx -V 2>&1 |
           sed -n 's/^configure arguments: \(.*\)$/\1/p' |
@@ -138,7 +158,8 @@
       register: nginx_configure_args
       changed_when: False
 
-    - shell:
+    - name: configure the build
+      shell:
         cmd: >-
           ./configure
           {{ nginx_configure_args.stdout }}
@@ -146,12 +167,14 @@
         chdir: "/tmp/nginx-{{ nginx_version.stdout }}"
         creates: "/tmp/nginx-{{ nginx_version.stdout }}/objs/ngx_rtmp_module.so"
 
-    - shell:
+    - name: make the nginx rtmp module
+      shell:
         cmd: make modules
         chdir: "/tmp/nginx-{{ nginx_version.stdout }}"
         creates: "/tmp/nginx-{{ nginx_version.stdout }}/objs/ngx_rtmp_module.so"
 
-    - copy:
+    - name: install the nginx rtmp module in place
+      copy:
         src: "/tmp/nginx-{{ nginx_version.stdout }}/objs/ngx_rtmp_module.so"
         dest: /usr/lib64/nginx/modules/ngx_rtmp_module.so
         owner: root
@@ -161,16 +184,8 @@
       become: yes
       notify: restart nginx
 
-    - copy:
-        src: "/tmp/nginx-rtmp-module-{{ nginx_rtmp_version }}/stat.xsl"
-        dest: /usr/share/nginx/html/stat.xsl
-        owner: root
-        group: root
-        mode: '0644'
-        remote_src: yes
-      become: yes
-
-    - copy:
+    - name: enable the nginx rtmp module
+      copy:
         src: mod-rtmp.conf
         dest: /usr/share/nginx/modules/mod-rtmp.conf
         owner: root
@@ -179,7 +194,18 @@
       become: yes
       notify: restart nginx
 
-    - copy:
+    - name: install the nginx rtmp stats xsl file
+      copy:
+        src: "/tmp/nginx-rtmp-module-{{ nginx_rtmp_version }}/stat.xsl"
+        dest: /usr/share/nginx/html/stat.xsl
+        owner: root
+        group: root
+        mode: '0644'
+        remote_src: yes
+      become: yes
+
+    - name: configure nginx
+      copy:
         src: nginx.conf
         dest: /etc/nginx/nginx.conf
         owner: root
@@ -188,7 +214,8 @@
       become: yes
       notify: restart nginx
 
-    - file:
+    - name: make the nginx dash temp directory
+      file:
         path: /var/lib/nginx/tmp/dash
         owner: nginx
         group: root
@@ -196,7 +223,8 @@
         state: directory
       become: yes
 
-    - file:
+    - name: make the web root directory
+      file:
         path: /var/www/html
         owner: root
         group: root
@@ -204,7 +232,8 @@
         state: directory
       become: yes
 
-    - copy:
+    - name: install the stream player page
+      copy:
         src: stream.html
         dest: /var/www/html/stream.html
         owner: root
@@ -212,7 +241,8 @@
         mode: '0644'
       become: yes
 
-    - systemd:
+    - name: enable the nginx service
+      systemd:
         name: nginx
         enabled: yes
       become: yes
