@@ -85,6 +85,7 @@
       service:
         name: nginx
         state: restarted
+      become: yes
   tasks:
     - name: add the epel and rpmfusion repos
       yum:
