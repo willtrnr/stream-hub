@@ -2,62 +2,63 @@
 - hosts: localhost
   gather_facts: no
   tasks:
-    - name: create the firewall rules
-      gcp_compute_firewall:
+    - name: add the firewall rule
+      google.cloud.gcp_compute_firewall:
         project: "{{ gcp_project }}"
-        name: "allow-{{ item.name }}"
+        name: stream-node
         allowed:
           - ip_protocol: tcp
             ports:
-              - "{{ item.port }}"
+              - '80'
+              - '443'
+              - '1935'
         target_tags:
-          - "{{ item.name }}-server"
+          - stream-node
         state: present
         auth_kind: "{{ gcp_cred_kind }}"
         service_account_file: "{{ gcp_cred_file }}"
-      with_items:
-        - name: http
-          port: '80'
-        - name: https
-          port: '443'
-        - name: rtmp
-          port: '1935'
 
-    - name: create the instance
-      gcp_compute_instance:
+    - name: start the instance
+      google.cloud.gcp_compute_instance:
         project: "{{ gcp_project }}"
         zone: "{{ gcp_zone }}"
-        name: stream-node
-        machine_type: e2-highcpu-8
+        name: stream-node-1
+        machine_type: n1-standard-4
         disks:
-          - auto_delete: yes
-            boot: yes
+          - boot: yes
+            auto_delete: yes
             initialize_params:
-              source_image: projects/centos-cloud/global/images/centos-8-v20200714
-              disk_size_gb: 20
+              source_image: projects/arch-linux-gce/global/images/arch-v20210124
+              disk_size_gb: 200
+        guest_accelerators:
+          - accelerator_type: "projects/{{ gcp_project }}/zones/{{ gcp_zone }}/acceleratorTypes/nvidia-tesla-t4"
+            accelerator_count: 1
         network_interfaces:
           - access_configs:
               - name: External NAT
                 type: ONE_TO_ONE_NAT
+                network_tier: PREMIUM
         tags:
           items:
-            - http-server
-            - https-server
-            - rtmp-server
+            - stream-node
+        scheduling:
+          automatic_restart: no
+          on_host_maintenance: TERMINATE
+          preemptible: yes
         state: present
         auth_kind: "{{ gcp_cred_kind }}"
         service_account_file: "{{ gcp_cred_file }}"
       register: instance
 
     - name: wait for the instance to come online
-      wait_for:
+      ansible.builtin.wait_for:
         host: "{{ instance.networkInterfaces[0].accessConfigs[0].natIP }}"
         port: 22
         delay: 5
         timeout: 60
 
     - name: update the dns record on cloudflare
-      cloudflare_dns:
+      community.general.cloudflare_dns:
         zone: archwill.net
         record: stream-hub
         type: A
@@ -68,12 +69,12 @@
         account_api_token: "{{ cf_token }}"
 
     - name: add to the play
-      add_host:
+      ansible.builtin.add_host:
         hostname: "{{ instance.networkInterfaces[0].accessConfigs[0].natIP }}"
         groupname: stream_nodes
 
     - name: ensure we do not have a conflicting host key locally
-      lineinfile:
+      ansible.builtin.lineinfile:
         path: "{{ lookup('env', 'HOME') }}/.ssh/known_hosts"
         regexp: "{{ instance.networkInterfaces[0].accessConfigs[0].natIP | regex_escape() }}"
         state: absent
@@ -82,131 +83,81 @@
   connection: ssh
   handlers:
     - name: restart nginx
-      service:
+      ansible.builtin.service:
         name: nginx
         state: restarted
       become: yes
   tasks:
-    - name: add the epel and rpmfusion repos
-      yum:
-        name:
-          - 'https://dl.fedoraproject.org/pub/epel/epel-release-latest-8.noarch.rpm'
-          - 'https://download1.rpmfusion.org/free/el/rpmfusion-free-release-8.noarch.rpm'
-        state: present
-      become: yes
-
-    - name: full system update
-      yum:
-        name: '*'
-        state: latest
+    - name: full update
+      community.general.pacman:
         update_cache: yes
+        upgrade: yes
       become: yes
       register: update
 
-    - name: disable selinux
-      lineinfile:
-        path: /etc/selinux/config
-        regexp: '^SELINUX='
-        line: SELINUX=disabled
-      become: yes
-      register: selinux
-
-    - name: reboot for selinux or kernel update
-      reboot:
-      become: yes
-      when: update.changed or selinux.changed
-
-    - name: install nginx, necessary tools and libs
-      yum:
+    - name: install gpu drivers
+      community.general.pacman:
         name:
-          - nginx
+          - nvidia
+        state: latest
+      become: yes
+      register: drivers
+
+    - name: reboot for updates or drivers install
+      ansible.builtin.reboot:
+      become: yes
+      when: update.changed or drivers.changed
+
+    - name: install nginx
+      community.general.pacman:
+        name:
+          - "{{ nginx_pkg_name }}"
+        state: latest
+      become: yes
+      notify: restart nginx
+
+    - name: install the necessary tools and libs
+      community.general.pacman:
+        name:
+          - base-devel
           - ffmpeg
-          - '@development'
-          - gd-devel
-          - libxslt-devel
-          - openssl-devel
-          - pcre-devel
-          - perl-ExtUtils-Embed
+          - libva-vdpau-driver
+          - nvidia-utils
+          - "{{ nginx_pkg_name }}"
+        state: latest
+      become: yes
+
+    - name: import the upstream nginx pgp key
+      ansible.builtin.command:
+        argv: ['gpg', '--recv-keys', 'B0F4253373F8F6F510D42178520A9993A1C052F8']
+      register: result
+      changed_when: "'imported' in result.stdout"
+
+    - name: download the nginx-rtmp package
+      ansible.builtin.unarchive:
+        src: "https://aur.archlinux.org/cgit/aur.git/snapshot/{{ nginx_rtmp_pkg_name }}.tar.gz"
+        dest: /tmp
+        creates: "/tmp/{{ nginx_rtmp_pkg_name }}"
+        remote_src: yes
+
+    - name: build the nginx-rtmp package
+      ansible.builtin.command:
+        argv: ['makepkg']
+        chdir: "/tmp/{{ nginx_rtmp_pkg_name }}"
+        creates: "/tmp/{{ nginx_rtmp_pkg_name }}/pkg"
+      register: makepkg
+
+    - name: install the nginx-rtmp package
+      community.general.pacman:
+        name:
+          - "/tmp/{{ nginx_rtmp_pkg_name }}/{{ makepkg.stdout | regex_search('Making package:.+$', multiline=True) | regex_replace('^Making package: (\\S+) (\\S+).*$', '\\1-\\2') }}-x86_64.pkg.tar.zst"
         state: present
       become: yes
-
-    - name: get the nginx version
-      shell:
-        cmd: "nginx -v 2>&1 | cut -d/ -f2"
-      register: nginx_version
-      changed_when: False
-
-    - name: download the nginx sources
-      unarchive:
-        src: "https://nginx.org/download/nginx-{{ nginx_version.stdout }}.tar.gz"
-        dest: /tmp
-        creates: "/tmp/nginx-{{ nginx_version.stdout }}"
-        remote_src: yes
-
-    - name: download the nginx rtmp sources
-      unarchive:
-        src: "https://github.com/arut/nginx-rtmp-module/archive/v{{ nginx_rtmp_version }}.tar.gz"
-        dest: /tmp
-        creates: "/tmp/nginx-rtmp-module-{{ nginx_rtmp_version }}"
-        remote_src: yes
-
-    - name: get the nginx build arguments
-      shell:
-        cmd: >-
-          nginx -V 2>&1 |
-          sed -n 's/^configure arguments: \(.*\)$/\1/p' |
-          sed "s/--with-cc-opt='\([^']*\)'/--with-cc-opt='\1 -Wimplicit-fallthrough=0 -Wno-cast-function-type -Wno-error=cast-function-type'/"
-      register: nginx_configure_args
-      changed_when: False
-
-    - name: configure the build
-      shell:
-        cmd: >-
-          ./configure
-          {{ nginx_configure_args.stdout }}
-          --add-dynamic-module=../nginx-rtmp-module-{{ nginx_rtmp_version }}
-        chdir: "/tmp/nginx-{{ nginx_version.stdout }}"
-        creates: "/tmp/nginx-{{ nginx_version.stdout }}/objs/ngx_rtmp_module.so"
-
-    - name: make the nginx rtmp module
-      shell:
-        cmd: make modules
-        chdir: "/tmp/nginx-{{ nginx_version.stdout }}"
-        creates: "/tmp/nginx-{{ nginx_version.stdout }}/objs/ngx_rtmp_module.so"
-
-    - name: install the nginx rtmp module in place
-      copy:
-        src: "/tmp/nginx-{{ nginx_version.stdout }}/objs/ngx_rtmp_module.so"
-        dest: /usr/lib64/nginx/modules/ngx_rtmp_module.so
-        owner: root
-        group: root
-        mode: '0755'
-        remote_src: yes
-      become: yes
+      when: makepkg.changed
       notify: restart nginx
-
-    - name: enable the nginx rtmp module
-      copy:
-        src: mod-rtmp.conf
-        dest: /usr/share/nginx/modules/mod-rtmp.conf
-        owner: root
-        group: root
-        mode: '0644'
-      become: yes
-      notify: restart nginx
-
-    - name: install the nginx rtmp stats xsl file
-      copy:
-        src: "/tmp/nginx-rtmp-module-{{ nginx_rtmp_version }}/stat.xsl"
-        dest: /usr/share/nginx/html/stat.xsl
-        owner: root
-        group: root
-        mode: '0644'
-        remote_src: yes
-      become: yes
 
     - name: configure nginx
-      copy:
+      ansible.builtin.copy:
         src: nginx.conf
         dest: /etc/nginx/nginx.conf
         owner: root
@@ -215,17 +166,26 @@
       become: yes
       notify: restart nginx
 
+    - name: download the missing stats stylesheet
+      ansible.builtin.get_url:
+        url: https://raw.githubusercontent.com/arut/nginx-rtmp-module/master/stat.xsl
+        dest: /usr/share/nginx/html/stat.xsl
+        owner: root
+        group: root
+        mode: '0644'
+      become: yes
+
     - name: make the nginx dash temp directory
-      file:
+      ansible.builtin.file:
         path: /var/lib/nginx/tmp/dash
-        owner: nginx
+        owner: http
         group: root
         mode: '0700'
         state: directory
       become: yes
 
     - name: make the web root directory
-      file:
+      ansible.builtin.file:
         path: /var/www/html
         owner: root
         group: root
@@ -234,7 +194,7 @@
       become: yes
 
     - name: install the stream player page
-      copy:
+      ansible.builtin.copy:
         src: stream.html
         dest: /var/www/html/stream.html
         owner: root
@@ -243,8 +203,8 @@
       become: yes
 
     - name: enable the nginx service
-      systemd:
+      ansible.builtin.systemd:
         name: nginx
         enabled: yes
       become: yes
-
+      notify: restart nginx
