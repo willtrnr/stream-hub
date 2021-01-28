@@ -23,7 +23,7 @@
         project: "{{ gcp_project }}"
         zone: "{{ gcp_zone }}"
         name: stream-node-1
-        machine_type: n1-standard-4
+        machine_type: n1-standard-2
         disks:
           - boot: yes
             auto_delete: yes
@@ -83,9 +83,10 @@
   connection: ssh
   handlers:
     - name: restart nginx
-      ansible.builtin.service:
+      ansible.builtin.systemd:
         name: nginx
         state: restarted
+        daemon_reload: yes
       become: yes
   tasks:
     - name: full update
@@ -156,16 +157,6 @@
       when: makepkg.changed
       notify: restart nginx
 
-    - name: configure nginx
-      ansible.builtin.copy:
-        src: nginx.conf
-        dest: /etc/nginx/nginx.conf
-        owner: root
-        group: root
-        mode: '0644'
-      become: yes
-      notify: restart nginx
-
     - name: download the missing stats stylesheet
       ansible.builtin.get_url:
         url: https://raw.githubusercontent.com/arut/nginx-rtmp-module/master/stat.xsl
@@ -175,7 +166,44 @@
         mode: '0644'
       become: yes
 
-    - name: make the nginx dash temp directory
+    - name: configure nginx
+      ansible.builtin.copy:
+        src: nginx.conf
+        dest: /etc/nginx/
+        owner: root
+        group: root
+        mode: '0644'
+      become: yes
+      notify: restart nginx
+
+    - name: adjust permissions on the nginx log directory
+      ansible.builtin.file:
+        path: /var/log/nginx
+        owner: http
+        group: root
+        mode: '0755'
+      become: yes
+
+    - name: disable protected dev for nginx
+      ansible.builtin.copy:
+        src: nginx-override.conf
+        dest: /etc/systemd/system/nginx.service.d/
+        owner: root
+        group: root
+        mode: '0644'
+      become: yes
+      notify: restart nginx
+
+    - name: install the dash transcode script
+      ansible.builtin.copy:
+        src: transcode-dash.sh
+        dest: /usr/local/lib/nginx/rtmp/
+        owner: root
+        group: root
+        mode: '0755'
+      become: yes
+
+    - name: create the nginx dash temp directory
       ansible.builtin.file:
         path: /var/lib/nginx/tmp/dash
         owner: http
@@ -184,19 +212,26 @@
         state: directory
       become: yes
 
-    - name: make the web root directory
-      ansible.builtin.file:
-        path: /var/www/html
+    - name: install the nginx dash tmpfs mount unit
+      ansible.builtin.copy:
+        src: var-lib-nginx-tmp-dash.mount
+        dest: /etc/systemd/system/
         owner: root
         group: root
-        mode: '0755'
-        state: directory
+        mode: '0644'
       become: yes
+
+    - name: make nginx dependent on the dash tmpfs mount
+      ansible.builtin.command:
+        argv: ['systemctl', 'add-wants', 'nginx.service', 'var-lib-nginx-tmp-dash.mount']
+        creates: /etc/systemd/system/nginx.service.wants/var-lib-nginx-tmp-dash.mount
+      become: yes
+      notify: restart nginx
 
     - name: install the stream player page
       ansible.builtin.copy:
         src: stream.html
-        dest: /var/www/html/stream.html
+        dest: /var/www/html/
         owner: root
         group: root
         mode: '0644'
@@ -206,5 +241,6 @@
       ansible.builtin.systemd:
         name: nginx
         enabled: yes
+        daemon_reload: yes
       become: yes
       notify: restart nginx

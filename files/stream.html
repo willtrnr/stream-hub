@@ -22,7 +22,7 @@
 </head>
 <body>
   <video id="player" controls></video>
-  <script src="https://cdn.dashjs.org/v3.1.1/dash.all.min.js"></script>
+  <script src="https://cdn.dashjs.org/v3.2.0/dash.all.min.js"></script>
   <script>
     (function() {
       const [,key] = /^(?:\?([a-zA-Z0-9_\-]+))?$/.exec(window.location.search)
@@ -34,7 +34,7 @@
       player.initialize(document.getElementById('player'), '/dash/' + key + '/index.mpd', false)
       player.updateSettings({
         streaming: {
-          liveDelay: 8,
+          liveDelay: 3,
           lowLatencyEnabled: true
         }
       })

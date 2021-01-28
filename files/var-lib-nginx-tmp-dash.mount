@@ -1,0 +1,11 @@
+[Unit]
+Description=Nginx DASH Transcode Temporary Directory (/var/lib/nginx/tmp/dash)
+Conflicts=umount.target
+Before=local-fs.target umount.target
+After=swap.target
+
+[Mount]
+What=tmpfs
+Where=/var/lib/nginx/tmp/dash
+Type=tmpfs
+Options=rw,strictatime,noexec,nosuid,nodev,uid=http,gid=root,mode=1700
