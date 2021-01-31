@@ -21,7 +21,7 @@
 
     - name: remove the dns record on cloudflare
       community.general.cloudflare_dns:
-        zone: "{{ cf_zone }}"
-        record: stream-hub
+        zone: "{{ dns_zone }}"
+        record: "{{ dns_record }}"
         state: absent
         api_token: "{{ cf_token }}"
