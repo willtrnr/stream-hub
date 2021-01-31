@@ -29,7 +29,7 @@
             auto_delete: yes
             initialize_params:
               source_image: projects/arch-linux-gce/global/images/arch-v20210124
-              disk_size_gb: 200
+              disk_size_gb: 64
         guest_accelerators:
           - accelerator_type: "projects/{{ gcp_project }}/zones/{{ gcp_zone }}/acceleratorTypes/nvidia-tesla-t4"
             accelerator_count: 1
@@ -59,14 +59,13 @@
 
     - name: update the dns record on cloudflare
       community.general.cloudflare_dns:
-        zone: archwill.net
-        record: stream-hub
+        zone: "{{ dns_zone }}"
+        record: "{{ dns_record }}"
         type: A
         value: "{{ instance.networkInterfaces[0].accessConfigs[0].natIP }}"
         solo: yes
         state: present
-        account_email: "{{ cf_email }}"
-        account_api_token: "{{ cf_token }}"
+        api_token: "{{ cf_token }}"
 
     - name: add to the play
       ansible.builtin.add_host:
@@ -121,6 +120,7 @@
       community.general.pacman:
         name:
           - base-devel
+          - certbot
           - ffmpeg
           - libva-vdpau-driver
           - nvidia-utils
@@ -132,7 +132,7 @@
       ansible.builtin.command:
         argv: ['gpg', '--recv-keys', 'B0F4253373F8F6F510D42178520A9993A1C052F8']
       register: result
-      changed_when: "'imported' in result.stdout"
+      changed_when: 'False'
 
     - name: download the nginx-rtmp package
       ansible.builtin.unarchive:
@@ -166,10 +166,27 @@
         mode: '0644'
       become: yes
 
+    - name: generate a certificate for the host
+      ansible.builtin.command:
+        argv: ['certbot', 'certonly', '--non-interactive', '--agree-tos', '-m', "{{ acme_email }}", '--standalone', '-d', "{{ dns_record }}.{{ dns_zone }}"]
+        creates: "/etc/letsencrypt/live/{{ dns_record }}.{{ dns_zone }}/fullchain.pem"
+      become: yes
+      notify: restart nginx
+
+    - name: make the dhparam file for nginx ssl
+      ansible.builtin.get_url:
+        url: https://ssl-config.mozilla.org/ffdhe2048.txt
+        dest: /etc/nginx/dhparam
+        owner: root
+        group: root
+        mode: '0644'
+      become: yes
+      notify: restart nginx
+
     - name: configure nginx
-      ansible.builtin.copy:
-        src: nginx.conf
-        dest: /etc/nginx/
+      ansible.builtin.template:
+        src: nginx.conf.j2
+        dest: /etc/nginx/nginx.conf
         owner: root
         group: root
         mode: '0644'

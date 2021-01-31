@@ -1,50 +1,91 @@
 <!doctype html>
 <html>
-<head>
-  <title>Stream</title>
-  <style>
-    html, body {
-      margin: 0;
-      padding: 0;
-      width: 100%;
-      height: 100%;
-    }
-
-    body {
-      background-color: #000;
-    }
-
-    #player {
-      width: 100%;
-      height: 100%;
-    }
-  </style>
-</head>
-<body>
-  <video id="player" controls></video>
-  <script src="https://cdn.dashjs.org/v3.2.0/dash.all.min.js"></script>
-  <script>
-    (function() {
-      const [,key] = /^(?:\?([a-zA-Z0-9_\-]+))?$/.exec(window.location.search)
-      if (!key) {
-        return
+  <head>
+    <title>Stream</title>
+    <link rel="stylesheet" href="https://ajax.googleapis.com/ajax/libs/shaka-player/3.0.7/controls.css">
+    <style>
+      html, body {
+        margin: 0;
+        padding: 0;
       }
 
-      const player = dashjs.MediaPlayer().create()
-      player.initialize(document.getElementById('player'), '/dash/' + key + '/index.mpd', false)
-      player.updateSettings({
-        streaming: {
-          liveDelay: 3,
-          lowLatencyEnabled: true
-        }
-      })
+      body {
+        background-color: #000;
+      }
 
-      setInterval(function () {
-        var dashMetrics = player.getDashMetrics()
-        var currentBuffer = dashMetrics.getCurrentBufferLevel('video')
-        console.log('Buffer: ', currentBuffer, 'secs')
-      }, 250)
-    })()
-  </script>
-</body>
+      .fill {
+        width: 100vw;
+        height: 100vh;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="fill" data-shaka-player-container>
+      <video id="player" class="fill" autoplay data-shaka-player></video>
+    </div>
+    <script src="https://ajax.googleapis.com/ajax/libs/shaka-player/3.0.7/shaka-player.ui.js"></script>
+    <script src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js" defer></script>
+    <script>
+      (function () {
+        const [,key] = /^(?:\?([a-zA-Z0-9_\-]+))?$/.exec(window.location.search)
+        if (!key) {
+          console.log('No stream key in URL!')
+          return
+        }
+
+        function onError(error) {
+          console.error('Error code', error.code, 'object', error)
+        }
+
+        function init() {
+          const video = document.getElementById('player')
+          const ui = video['ui']
+          const controls = ui.getControls()
+          const player = controls.getPlayer()
+
+          window.ui = ui
+          window.controls = controls
+          window.player = player
+
+          ui.configure({
+            addSeekBar: false,
+            castReceiverAppId: '930DEB06',
+            controlPanelElements: ['play_pause', 'spacer', 'mute', 'volume', 'fullscreen', 'overflow_menu'],
+            overflowMenuButtons: ['quality', 'picture_in_picture', 'cast']
+          })
+          player.configure({
+            manifest: {
+              retryParameters: {
+                maxAttempts: 5,
+                baseDelay: 200
+              },
+              defaultPresentationDelay: 2,
+              dash: {
+                // FFmpeg is setting the value wrong due to our small frags
+                ignoreMinBufferTime: true
+              }
+            },
+            streaming: {
+              retryParameters: {
+                maxAttempts: 5,
+                baseDelay: 200
+              },
+              rebufferingGoal: .5,
+              bufferingGoal: 2,
+              bufferBehind: 0,
+              jumpLargeGaps: true
+            }
+          })
+
+          player.addEventListener('error', e => onError(e.detail))
+          player.addEventListener('error', e => onError(e.detail))
+
+          player.load(`/dash/${key}/index.mpd`).catch(onError)
+        }
+
+        document.addEventListener('shaka-ui-loaded', init)
+        document.addEventListener('shaka-ui-load-failed', e => onError(e.detail))
+      })()
+    </script>
+  </body>
 </html>

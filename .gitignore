@@ -1,5 +1,6 @@
 *.swp
 *~
 /gcp-creds.json
+/group_vars/all*
 /host_vars/localhost*
 ~*

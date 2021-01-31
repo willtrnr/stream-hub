@@ -13,7 +13,8 @@ ffmpeg_args=(
 )
 
 input_args=(
-  -re
+  -analyzeduration 1
+  -fflags nobuffer
   -i "rtmp://localhost/live/$name"
 )
 
@@ -33,36 +34,44 @@ audio_args=(
   -r:a 48000
 )
 
+encode_args=(
+  -threads 1
+  "${video_args[@]}"
+  "${audio_args[@]}"
+)
+
 output_args=(
-  -f dash
   -ldash 1
   -streaming 1
+  -write_prft 1
   -window_size 3
   -use_template 1
   -use_timeline 0
   -seg_duration 2
-  -remove_at_exit 1
-  -utc_timing_url "http://time.akamai.com/?iso"
+  -target_latency 2
+  -index_correction 1
+  -extra_window_size 5
+  -adaptation_sets 'id=0,streams=v id=1,streams=a'
+  -utc_timing_url 'https://time.akamai.com/?iso'
+  -f dash "${output}/${name}/index.mpd"
 )
 
-transcode_args=(
-  -threads 1
-  "${video_args[@]}"
-  "${audio_args[@]}"
-  "${output_args[@]}"
-)
-
-mkdir -p "${output}/${name}_"{480p,720p,1080p}
+mkdir -p "${output}/${name}"
 
 function cleanup {
   pkill -TERM -P $$
-  rm -rf "${output}/${name}_"{480p,720p,1080p}
+  rm -rf "${output}/${name}"
 }
 
 trap 'cleanup' INT TERM EXIT
 
-/usr/bin/ffmpeg "${ffmpeg_args[@]}" "${input_args[@]}" \
-  -filter:v scale=-2:480  -b:v 800k  -b:a 128k "${transcode_args[@]}" "${output}/${name}_480p/index.mpd" \
-  -filter:v scale=-2:720  -b:v 2400k -b:a 192k "${transcode_args[@]}" "${output}/${name}_720p/index.mpd" \
-  -filter:v scale=-2:1080 -b:v 4800k -b:a 256k "${transcode_args[@]}" "${output}/${name}_1080p/index.mpd" \
+/usr/bin/ffmpeg \
+  "${ffmpeg_args[@]}" \
+  "${input_args[@]}" \
+  "${encode_args[@]}" \
+  -map '0:v:0' -map '0:a?:0' -map '0:v:0' -map '0:a?:0' -map '0:v:0' -map '0:a?:0' \
+  -filter:v:0 scale=-2:480  -b:v:0 600k  -b:a:0 96k \
+  -filter:v:1 scale=-2:720  -b:v:1 1200k -b:a:1 128k \
+  -filter:v:2 scale=-2:1080 -b:v:2 4200k -b:a:2 256k \
+  "${output_args[@]}" \
   & wait
