@@ -70,8 +70,8 @@ trap 'cleanup' INT TERM EXIT
   "${input_args[@]}" \
   "${encode_args[@]}" \
   -map '0:v:0' -map '0:a?:0' -map '0:v:0' -map '0:a?:0' -map '0:v:0' -map '0:a?:0' \
-  -filter:v:0 scale=-2:480  -b:v:0 600k  -b:a:0 96k \
-  -filter:v:1 scale=-2:720  -b:v:1 1200k -b:a:1 128k \
+  -filter:v:0 scale=-2:480  -b:v:0 700k  -b:a:0 96k \
+  -filter:v:1 scale=-2:720  -b:v:1 1400k -b:a:1 128k \
   -filter:v:2 scale=-2:1080 -b:v:2 4200k -b:a:2 256k \
   "${output_args[@]}" \
   & wait
