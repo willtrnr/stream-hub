@@ -128,12 +128,6 @@
         state: latest
       become: yes
 
-    - name: import the upstream nginx pgp key
-      ansible.builtin.command:
-        argv: ['gpg', '--recv-keys', 'B0F4253373F8F6F510D42178520A9993A1C052F8']
-      register: result
-      changed_when: 'False'
-
     - name: download the nginx-rtmp package
       ansible.builtin.unarchive:
         src: "https://aur.archlinux.org/cgit/aur.git/snapshot/{{ nginx_rtmp_pkg_name }}.tar.gz"
@@ -143,7 +137,7 @@
 
     - name: build the nginx-rtmp package
       ansible.builtin.command:
-        argv: ['makepkg']
+        argv: ['makepkg', '--skippgpcheck']
         chdir: "/tmp/{{ nginx_rtmp_pkg_name }}"
         creates: "/tmp/{{ nginx_rtmp_pkg_name }}/pkg"
       register: makepkg

@@ -1,4 +1,4 @@
 ---
-preemptible: no
+ansible_python_interpreter: /usr/bin/python3
 nginx_pkg_name: nginx-mainline
 nginx_rtmp_pkg_name: "{{ nginx_pkg_name }}-mod-rtmp"
