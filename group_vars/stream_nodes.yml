@@ -1,3 +1,4 @@
 ---
+preemptible: no
 nginx_pkg_name: nginx-mainline
 nginx_rtmp_pkg_name: "{{ nginx_pkg_name }}-mod-rtmp"
