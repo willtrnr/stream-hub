@@ -110,7 +110,7 @@ rtmp {
             allow play 127.0.0.1;
             deny play all;
 
-            exec_push /usr/local/lib/nginx/rtmp/transcode-dash.sh $name 2>/var/log/nginx/transcode-dash-$name.log;
+            exec_push /usr/local/lib/nginx/rtmp/transcode-rtmp-dash.sh $name 2>/var/log/nginx/transcode-$name.log;
             exec_kill_signal term;
         }
     }

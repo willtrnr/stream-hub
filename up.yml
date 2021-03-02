@@ -12,6 +12,9 @@
               - '80'
               - '443'
               - '1935'
+          - ip_protocol: udp
+            ports:
+              - '5000-5500'
         target_tags:
           - stream-node
         state: present
@@ -205,9 +208,9 @@
       become: yes
       notify: restart nginx
 
-    - name: install the dash transcode script
+    - name: install the rtmp dash transcode script
       ansible.builtin.copy:
-        src: transcode-dash.sh
+        src: transcode-rtmp-dash.sh
         dest: /usr/local/lib/nginx/rtmp/
         owner: root
         group: root
