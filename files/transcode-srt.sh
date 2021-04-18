@@ -1,9 +1,10 @@
 #! /usr/bin/env bash
 
-port="$1"
-output="${2:-/var/lib/nginx/tmp/dash}"
+name="$1"
+port="${2:-5000}"
+output="${3:-/var/lib/nginx/tmp/dash}"
 
-if [ -z "$port" ]; then
+if [ -z "$name" ]; then
   exit 1
 fi
 
@@ -13,7 +14,9 @@ ffmpeg_args=(
 )
 
 input_args=(
-  -i "srt://:$port?mode=listener&transtype=live"
+  -mode listener
+  -transtype live
+  -i "srt://:${port}"
 )
 
 video_args=(
@@ -22,8 +25,9 @@ video_args=(
   -g:v 48
   -keyint_min:v 48
   -profile:v main
-  -preset:v hq
+  -preset:v llhq
   -rc:v vbr_hq
+  -bf:v 2
   -pix_fmt:v yuv420p
 )
 
@@ -68,8 +72,8 @@ trap 'cleanup' INT TERM EXIT
   "${input_args[@]}" \
   "${encode_args[@]}" \
   -map '0:v:0' -map '0:a?:0' -map '0:v:0' -map '0:a?:0' -map '0:v:0' -map '0:a?:0' \
-  -filter:v:0 scale=-2:480  -b:v:0 700k  -b:a:0 96k \
-  -filter:v:1 scale=-2:720  -b:v:1 1400k -b:a:1 128k \
-  -filter:v:2 scale=-2:1080 -b:v:2 4200k -b:a:2 256k \
+  -filter:v:0 scale=-2:480  -b:v:0 600k  -maxrate:v:0 700k  -bufsize:v:0 1050k -b:a:0 96k \
+  -filter:v:1 scale=-2:720  -b:v:1 1200k -maxrate:v:1 1400k -bufsize:v:1 2100k -b:a:1 128k \
+  -filter:v:2 scale=-2:1080 -b:v:2 3900k -maxrate:v:2 4200k -bufsize:v:2 6300k -b:a:2 256k \
   "${output_args[@]}" \
   & wait

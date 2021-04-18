@@ -14,7 +14,7 @@
               - '1935'
           - ip_protocol: udp
             ports:
-              - '5000-5500'
+              - '5000-5100'
         target_tags:
           - stream-node
         state: present
@@ -84,12 +84,18 @@
 - hosts: stream_nodes
   connection: ssh
   handlers:
+    - name: reload systemd
+      ansible.builtin.systemd:
+        daemon_reload: yes
+      become: yes
+
     - name: restart nginx
       ansible.builtin.systemd:
         name: nginx
         state: restarted
         daemon_reload: yes
       become: yes
+
   tasks:
     - name: full update
       community.general.pacman:
@@ -198,25 +204,6 @@
         mode: '0755'
       become: yes
 
-    - name: disable protected dev for nginx
-      ansible.builtin.copy:
-        src: nginx-override.conf
-        dest: /etc/systemd/system/nginx.service.d/
-        owner: root
-        group: root
-        mode: '0644'
-      become: yes
-      notify: restart nginx
-
-    - name: install the rtmp dash transcode script
-      ansible.builtin.copy:
-        src: transcode-rtmp-dash.sh
-        dest: /usr/local/lib/nginx/rtmp/
-        owner: root
-        group: root
-        mode: '0755'
-      become: yes
-
     - name: create the nginx dash temp directory
       ansible.builtin.file:
         path: /var/lib/nginx/tmp/dash
@@ -235,12 +222,44 @@
         mode: '0644'
       become: yes
 
+    - name: install the rtmp and srt dash transcode script
+      ansible.builtin.copy:
+        src: "{{ item }}"
+        dest: /usr/local/lib/nginx/dash/
+        owner: root
+        group: root
+        mode: '0755'
+      become: yes
+      loop:
+        - transcode-rtmp.sh
+        - transcode-srt.sh
+
+    - name: allow nginx child processes access to the nvidia gpu
+      ansible.builtin.copy:
+        src: nginx-override.conf
+        dest: /etc/systemd/system/nginx.service.d/
+        owner: root
+        group: root
+        mode: '0644'
+      become: yes
+      notify: restart nginx
+
     - name: make nginx dependent on the dash tmpfs mount
       ansible.builtin.command:
         argv: ['systemctl', 'add-wants', 'nginx.service', 'var-lib-nginx-tmp-dash.mount']
         creates: /etc/systemd/system/nginx.service.wants/var-lib-nginx-tmp-dash.mount
       become: yes
       notify: restart nginx
+
+    - name: install the srt transcoder service unit
+      ansible.builtin.copy:
+        src: srt-receiver@.service
+        dest: /etc/systemd/system/
+        owner: root
+        group: root
+        mode: '0644'
+      become: yes
+      notify: reload systemd
 
     - name: install the stream player page
       ansible.builtin.copy:

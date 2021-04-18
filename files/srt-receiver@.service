@@ -1,0 +1,12 @@
+[Unit]
+Description=SRT stream receiver and transcoder for %I
+Wants=var-lib-nginx-tmp-dash.mount
+After=network.target
+
+[Service]
+ExecStart=/usr/bin/bash /usr/local/lib/nginx/dash/transcode-srt.sh %I
+Restart=always
+User=http
+
+[Install]
+WantedBy=multi-user.target

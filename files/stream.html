@@ -2,7 +2,7 @@
 <html>
   <head>
     <title>Stream</title>
-    <link rel="stylesheet" href="https://ajax.googleapis.com/ajax/libs/shaka-player/3.0.7/controls.css">
+    <link rel="stylesheet" href="https://ajax.googleapis.com/ajax/libs/shaka-player/3.0.10/controls.css">
     <style>
       html, body {
         margin: 0;
@@ -23,7 +23,7 @@
     <div class="fill" data-shaka-player-container>
       <video id="player" class="fill" autoplay data-shaka-player></video>
     </div>
-    <script src="https://ajax.googleapis.com/ajax/libs/shaka-player/3.0.7/shaka-player.ui.js"></script>
+    <script src="https://ajax.googleapis.com/ajax/libs/shaka-player/3.0.10/shaka-player.ui.js"></script>
     <script src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js" defer></script>
     <script>
       (function () {
@@ -77,7 +77,6 @@
             }
           })
 
-          player.addEventListener('error', e => onError(e.detail))
           player.addEventListener('error', e => onError(e.detail))
 
           player.load(`/dash/${key}/index.mpd`).catch(onError)
